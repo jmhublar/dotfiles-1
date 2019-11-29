@@ -3,6 +3,7 @@ set -euo pipefail
 
 HOOK_DIR="${0%/*}/../"
 source "${HOOK_DIR}/lib/base.sh"
+trap -- '__cleanup_temp' EXIT
 
 version_compare_py="$(cat "${HOOK_DIR}/lib/version_compare.py")"
 
@@ -43,8 +44,7 @@ should-install() {
 install-alacritty-mac() {
   local releases tag pkg_url man_url tmpdir
 
-  tmpdir="$(mktemp -d /tmp/alacritty.XXXXXXXX)"
-  trap -- "if [ -e '$tmpdir' ]; then rm -rf '$tmpdir'; fi" EXIT
+  tmpdir="$(mktemp-dir)"
   pushd "$tmpdir" &>/dev/null
 
   releases="$1"
@@ -65,7 +65,7 @@ install-alacritty-mac() {
   if [ ! -e /Volumes/Alacritty ]; then
     __fatal 'Unable to mount DMG'
   fi
-  trap -- "if [ -e /Volumes/Alacritty ]; then /usr/bin/hdiutil detach /Volumes/Alacritty; fi; if [ -e '$tmpdir' ]; then rm -rf '$tmpdir'; fi" EXIT
+  trap -- "if [ -e /Volumes/Alacritty ]; then /usr/bin/hdiutil detach /Volumes/Alacritty; fi; __cleanup_temp" EXIT
 
   __message 'Copying Alacritty.app to ~/Applications'
   if [ -e "${HOME}/Applications/Alacritty.app" ]; then
@@ -115,10 +115,13 @@ install-alacritty-mac() {
 }
 
 install-alacritty-linux() {
-  local releases tag pkg_url man_url tmpdir
+  local releases
+  local tag
+  local pkg_url
+  local man_url
+  local tmpdir
 
-  tmpdir="$(mktemp -d /tmp/alacritty.XXXXXXXX)"
-  trap -- "if [ -e '$tmpdir' ]; then rm -rf '$tmpdir'; fi" EXIT
+  tmpdir="$(mktemp-dir)"
   pushd "$tmpdir" &>/dev/null
 
   releases="$1"
@@ -131,15 +134,18 @@ install-alacritty-linux() {
   fi
   man_url="$(printf '%s\n' "$releases" | awk '/\.1\.gz/ { print($3) }')"
 
-  if [ -z "${pkg_url:-}" ]; then
+  if [ ! -z "${pkg_url:-}" ]; then
+    mkdir -p "${HOME}/.local/bin"
+    # Install alacritty binary
+    __message 'Downloading tarball'
+    curl -SLo "${tmpdir}/alacritty.tgz" "${pkg_url}"
+    pushd "${HOME}/.local/bin" &>/dev/null
+    tar xzf "${tmpdir}/alacritty.tgz"
+    popd &>/dev/null
+    chmod +x "${HOME}/.local/bin/alacritty"
+  else
     __fatal 'Unable to find suitable package for Ubuntu. Will not install alacritty'
   fi
-  mkdir -p "${HOME}/.local/bin"
-
-  # Install alacritty binary
-  __message 'Downloading tarball'
-  curl -SsLo - "$pkg_url" | tar -xzC "${HOME}/.local/bin" &>/dev/null
-  chmod +x "${HOME}/.local/bin/alacritty"
 
   # Install current version's man docs
   if [ -n "$man_url" ]; then
